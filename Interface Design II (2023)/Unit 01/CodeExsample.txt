@@ -1,0 +1,110 @@
+#include <CapacitiveSensor.h>
+#include <Servo.h>
+
+CapacitiveSensor  mySensy = CapacitiveSensor(4,2);        // 1M resistor between pins 4 & 2, pin 2 is sensor pin, add a wire and or foil if desired
+Servo myservo;  // create servo object to control a servo
+int pos = 0;    // variable to store the servo position
+float myValue = 0.0f;
+float myBuffer [ 100 ]; // array (buffer) with size 100 times float values
+int   myBufferIndex = 0; // this variable we use to track the current position within the array/buffer
+float Offset = 0.0f;
+
+void setup()                    
+{
+   myservo.attach(9);  // attaches the servo on pin 9 to the servo object
+   mySensy.set_CS_AutocaL_Millis(0xFFFFFFFF);     // turn off autocalibrate on channel 1 - just as an example
+   Serial.begin(115200);
+}
+
+void loop()                    
+{
+    float test =   myBuffer[0];   
+
+    FillBufferWithNumberOfValue(5);    
+      
+    float myTempValue = ComputAverageHistoryValue(60);
+
+    myValue = SimpleFilter( myValue, myTempValue, 5);
+
+    float correctedValue = myValue - Offset;
+    Serial.print(correctedValue);                  // print sensor output 
+    Serial.print("\n");
+
+    delay(1);                             // arbitrary delay to limit data to serial port 
+
+    // Offset drift compensation
+    if(abs(correctedValue) < 50) // make sure not to compensate full activated readings
+    {
+      if( correctedValue < -0.2f) Offset -= 0.05f;
+      else if( correctedValue > 0.2f) Offset += 0.05f;
+    }
+
+    if(correctedValue < 0)
+    {
+       Offset += myValue - Offset;
+    }
+
+    ///////////////////////////////////
+/*
+    if(correctedValue  < 150)
+    {
+       myservo.write(0);
+    }else
+    {
+       myservo.write(180);
+    }*/
+
+    int mappedPos  = map(correctedValue, 0, 50, 0, 180);
+
+    if( mappedPos <0 ) mappedPos = 0;
+    if( mappedPos > 180) mappedPos = 180;
+
+     myservo.write(mappedPos);
+}
+
+void FillBufferWithNumberOfValue(int numberOfSamples)
+{
+  for(int i = 0; i < numberOfSamples; i++)
+  {
+    myBuffer[ myBufferIndex ] =  mySensy.capacitiveSensor(30); // Make measurement and store in buffer at position myBufferIndex
+    
+    myBufferIndex = myBufferIndex + 1; // increase the positioni index myBufferIndex
+    if( myBufferIndex >= 100) myBufferIndex = 0; // make sure it does not exceed the buffer bounderies (100)
+  }
+}
+
+float ComputAverageHistoryValue(int nrOfSamples)
+{
+  float result = 0.0f;
+  
+  for(int i = 0; i < nrOfSamples; i = i + 1)
+  {
+     int idx = myBufferIndex -  nrOfSamples + i; // compute nrOfSamples into the past from myBufferIndex current position
+
+     if(idx < 0) idx = 100 + idx; // if the index would be negative make it start from the end of the buffer
+
+     result = result + myBuffer[idx]; // sum-up the value
+  }  
+
+  return  result / (float)nrOfSamples; // return the result
+}
+
+float SimpleFilter(float oldValue, float curVal, float filterFaktor)
+{
+   return (curVal + oldValue * filterFaktor) / ( 1 + filterFaktor);
+}
+
+float MakeOversampling(int nrSamples)
+{
+    float result = 0.0f;
+
+    for( int i = 0; i < nrSamples; i = i + 1 )
+    {
+          float curVal = mySensy.capacitiveSensor(30);
+          result = result + curVal;
+    }
+
+    result = result / (float)nrSamples;
+    
+    return result;    
+}
